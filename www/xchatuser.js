@@ -23,7 +23,8 @@ class XChatUser {
   receivedChunks = [];
   fileInfo = null;
 
-  
+  // 添加传输控制变量
+  #isTransferCancelled = false;
 
   async createConnection() {
     this.rtcConn = new RTCPeerConnection({ iceServers: [] });
@@ -156,74 +157,111 @@ class XChatUser {
     this.chatChannel.onclose = () => console.log('DataChannel is closed');
   }
   checkBufferedAmount() {
-    const maxBufferedAmount = 1024 * 128; // 设置最大缓冲区限制（例如 256KB）
-    if (this.chatChannel.bufferedAmount >= maxBufferedAmount) {
-      // console.log('Data channel is full, waiting...');
-      // 如果缓冲区满了，暂停发送
-      return false;
-    } else {
-      // 缓冲区未满，可以继续发送
-      return true;
-    }
+    const maxBufferedAmount = 1024 * 64; // 降低最大缓冲区限制到 64KB
+    return new Promise(resolve => {
+      if (this.chatChannel.bufferedAmount > maxBufferedAmount) {
+        // 如果缓冲区超过阈值，等待 bufferedamountlow 事件
+        const handleBufferedAmountLow = () => {
+          this.chatChannel.removeEventListener('bufferedamountlow', handleBufferedAmountLow);
+          resolve();
+        };
+        this.chatChannel.addEventListener('bufferedamountlow', handleBufferedAmountLow);
+      } else {
+        // 缓冲区未满，立即解析
+        resolve();
+      }
+    });
   }
-  sendFileBytes(file) {
+  sendFileBytes(file, onProgress) {
     return new Promise((resolve, reject) => {
-      const chunkSize = 16 * 1024; // 每次发送 32KB
+      const chunkSize = 8 * 1024; // 降低每个块的大小到 8KB
       const totalChunks = Math.ceil(file.size / chunkSize);
       let currentChunk = 0;
+      let totalSent = 0;
+      let lastProgressUpdate = Date.now();
 
       const fileReader = new FileReader();
       
-      // 文件读取完成后的处理
+      fileReader.onerror = () => {
+        reject(new Error('File reading failed'));
+      };
+
       fileReader.onload = async () => {
-        // `fileReader.result` 包含当前块的数据
         try {
-
-          while(!this.checkBufferedAmount()) {
-            await new Promise((resolve, reject) => {
-              setTimeout(() => {
-                resolve();
-              }, 100);
-            });
+          if (this.#isTransferCancelled) {
+            return;
           }
-          this.chatChannel.send(fileReader.result); // 发送数据
-        } catch (e) {
-          console.error(e);
-          reject();
-        }
-        console.log(`${currentChunk + 1}/${totalChunks}(${Math.floor((currentChunk + 1) / totalChunks * 100)}%)`);
-        currentChunk++;
 
-        // 如果还有下一个块，继续发送
-        if (currentChunk < totalChunks) {
-          sendNextChunk();
-        } else {
-          console.log('File sent successfully.');
-          resolve();
+          await this.checkBufferedAmount();
+          
+          if (this.chatChannel.readyState !== 'open') {
+            throw new Error('Connection closed');
+          }
+
+          this.chatChannel.send(fileReader.result);
+          totalSent += fileReader.result.byteLength;
+
+          // 限制进度更新频率，避免过于频繁的UI更新
+          const now = Date.now();
+          if (now - lastProgressUpdate > 100) { // 每 100ms 最多更新一次
+            if (onProgress) {
+              onProgress(totalSent, file.size);
+            }
+            lastProgressUpdate = now;
+          }
+
+          currentChunk++;
+
+          if (currentChunk < totalChunks) {
+            // 使用 setTimeout 来避免调用栈过深
+            setTimeout(() => sendNextChunk(), 0);
+          } else {
+            if (onProgress) {
+              onProgress(totalSent, file.size); // 确保最后一次进度更新
+            }
+            resolve();
+          }
+        } catch (e) {
+          console.error('Error sending chunk:', e);
+          reject(e);
         }
       };
 
-      function sendNextChunk() {
-        const start = currentChunk * chunkSize;
-        const end = Math.min(start + chunkSize, file.size);
+      const sendNextChunk = () => {
         try {
+          const start = currentChunk * chunkSize;
+          const end = Math.min(start + chunkSize, file.size);
           const chunk = file.slice(start, end);
-          fileReader.readAsArrayBuffer(chunk); // 读取当前块
+          fileReader.readAsArrayBuffer(chunk);
         } catch (e) {
-          console.error(e);
-          reject();
+          console.error('Error preparing chunk:', e);
+          reject(e);
         }
-      }
+      };
 
-      sendNextChunk(); // 开始发送
+      sendNextChunk();
     });
   }
 
-  async sendFile(fileInfo, file) {
-    const fileInfoStr = '##FILE_S##' + JSON.stringify(fileInfo);
-    await this.sendMessage(fileInfoStr);
-    await this.sendFileBytes(file);
-    await this.sendMessage('##FILE_E##');
+  async sendFile(fileInfo, file, onProgress) {
+    try {
+      this.#isTransferCancelled = false; // 重置取消标志
+      if (this.chatChannel.readyState !== 'open') {
+        throw new Error('Connection not open');
+      }
+
+      const fileInfoStr = '##FILE_S##' + JSON.stringify(fileInfo);
+      await this.sendMessage(fileInfoStr);
+      
+      await this.sendFileBytes(file, onProgress);
+      
+      if (!this.#isTransferCancelled) { // 只有在未取消时才发送结束标记
+        await this.sendMessage('##FILE_E##');
+      }
+    } catch (e) {
+      console.error('Send file failed:', e);
+      throw e;
+    }
   }
   
   async sendMessage(message) {
@@ -235,6 +273,24 @@ class XChatUser {
       await this.chatChannel.send(message);
     } else {
       throw new Error('DataChannel is not open');
+    }
+  }
+
+  // 添加取消传输方法
+  cancelTransfer() {
+    this.#isTransferCancelled = true;
+    if (this.chatChannel) {
+      // 关闭并重新创建数据通道，确保传输被中断
+      this.chatChannel.close();
+      this.createDataChannel();
+    }
+  }
+
+  // 创建新的数据通道
+  createDataChannel() {
+    if (this.rtcConn) {
+      this.chatChannel = this.rtcConn.createDataChannel('chat', connOption);
+      this.dataChannel_initEvent();
     }
   }
 }

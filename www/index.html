@@ -3,34 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>P2P内网聊天demo</title>
-  <script src="./xchatuser.js?v=5"></script>
-  <link rel="stylesheet" href="./style.css">
-  <style>
-    body .dragtip {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      background: rgba(0,0,0,0.8);
-      z-index: 999;
-      width: 100vw;
-      height: 100vh;
-      pointer-events: none;
-    }
-
-    body.dragover .dragtip {
-      display: block;
-    }
-    body.dragover .dragtip h1 {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      margin: 0;
-      transform: translate(-50%, -50%);
-      font-size: 32px;
-    }
-  </style>
+  <title>局域网文字/文件P2P传输工具</title>
+  <script src="./xchatuser.js?v=14"></script>
+  <link rel="stylesheet" href="./style.css?v=14">
 </head>
 <body>
   <div class="dragtip">
@@ -39,6 +14,22 @@
   <div class="left">
     <div class="chat-wrapper">
     </div>
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <button class="toolbar-btn file-btn" title="发送文件">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path fill="currentColor" d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/>
+          </svg>
+        </button>
+      </div>
+      <div class="toolbar-right">
+        <button class="toolbar-btn send-btn" title="发送消息">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
     <textarea id="messageInput" class="txt-msg" onkeydown="enterTxt(event)"></textarea>
   </div>
   <div class="right">
@@ -46,38 +37,24 @@
     </ul>
   </div>
 
- 
-  <script src="./index.js?v=5"></script>
+  <div class="modal" id="userSelectModal">
+    <div class="modal-content">
+      <h3>选择接收用户</h3>
+      <div class="user-list" id="userSelectList">
+      </div>
+      <div class="progress-container" style="display: none;">
+        <div class="progress-text">正在发送...</div>
+        <div class="progress-bar">
+          <div class="progress-bar-inner"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button onclick="cancelSendFile()">取消</button>
+        <button onclick="confirmSendFile()">发送</button>
+      </div>
+    </div>
+  </div>
 
-  <script>
-
-    // 获取dom元素
-    let droptarget = document.body
-    // 文件流数组
-    let fileBlodArr = []
-    // 文件数组
-    let fileArr = []
-    // 拖拽上传事件
-    async function handleEvent(event) {
-        // 阻止事件的默认行为
-        event.preventDefault();
-        if (event.type === 'drop') {
-          droptarget.classList.remove('dragover')
-          for (let file of event.dataTransfer.files) {
-            console.log(file);
-            await sendFile(file)
-          }
-        } else if (event.type === 'dragleave') {
-          droptarget.classList.remove('dragover')
-        } else {
-          droptarget.classList.add('dragover')
-        }
-    }
-    // 拖拽事件绑定
-    droptarget.addEventListener("dragenter", handleEvent);
-    droptarget.addEventListener("dragover", handleEvent);
-    droptarget.addEventListener("drop", handleEvent);
-    droptarget.addEventListener("dragleave", handleEvent);
-  </script>
+  <script src="./index.js?v=14"></script>
 </body>
 </html>

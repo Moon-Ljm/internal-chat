@@ -1,7 +1,19 @@
 const WebSocket = require('ws');
 const service = require('./data');
 
-const PORT = 8081;
+const originalLog = console.log;
+console.log = function() {
+  const date = new Date();
+  const pad = (num) => String(num).padStart(2, '0');
+  const ms = String(date.getMilliseconds()).padStart(3, '0');
+  
+  const timestamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${ms}`;
+  
+  originalLog.apply(console, [`[${timestamp}]`, ...arguments]);
+};
+
+// 接收启动参数作为端口号，默认8081
+const PORT = process.argv[2] || 8081;
 const server = new WebSocket.Server({ port: PORT });
 
 const SEND_TYPE_REG = '1001'; // 注册后发送用户id
@@ -21,12 +33,11 @@ console.log(`Signaling server running on ws://localhost:${PORT}`);
 
 server.on('connection', (socket, request) => {
   var ip = request.headers['x-forwarded-for'] ?? request.headers['x-real-ip'] ?? socket._socket.remoteAddress.split("::ffff:").join("");
-  console.log('ip:', ip);
   const currentId = service.registerUser(ip, socket);
   // 向客户端发送自己的id
   socketSend_UserId(socket, currentId);
   
-  console.log('A client connected.');
+  console.log(`${currentId}@${ip} connected`);
   
   service.getUserList(ip).forEach(user => {
     socketSend_RoomInfo(user.socket, ip);
@@ -81,7 +92,7 @@ server.on('connection', (socket, request) => {
     service.getUserList(ip).forEach(user => {
       socketSend_RoomInfo(user.socket, ip);
     });
-    console.log('A client disconnected.');
+    console.log(`${currentId}@${ip} disconnected`);
   });
 
   socket.on('error', () => {
@@ -89,7 +100,7 @@ server.on('connection', (socket, request) => {
     service.getUserList(ip).forEach(user => {
       socketSend_RoomInfo(user.socket, ip);
     });
-    console.log('A client disconnected.');
+    console.log(`${currentId}@${ip} disconnected`);
   });
 });
 
